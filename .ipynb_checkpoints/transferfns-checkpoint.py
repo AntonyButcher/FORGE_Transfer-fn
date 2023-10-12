@@ -10,6 +10,8 @@ from scipy import ndimage
 import math
 from math import ceil
 
+from multitaper import MTSpec
+
 def segy2stream(path, network, channel_spacing=1, units='Strain rate'):
     """
     Reads in SEGY file and outputs and obspy stream with correct header information.
@@ -311,3 +313,73 @@ def fk_filter(st, wavenumber_limits=(-0.5, 0.5), freq_limits=(-1000, 1000), tape
         
         
     return st_fk
+
+def moving_average(a, n=3) :
+    """
+    Moving average function
+    """
+    
+    ret = np.cumsum(a, dtype=float)
+    ret[n:] = ret[n:] - ret[:-n]
+    return ret[n - 1:] / n
+
+def to_strain(st,freqmin=5,freqmax=250):
+    """
+    Converts to strain from strain rate
+    """
+    st_tmp=st.copy()
+    for tr in st_tmp:
+        tr.filter(type='bandpass',freqmin=freqmin,freqmax=freqmax)
+        # Convert from nm/s/s to m/s 
+        tr.data=tr.data*1e-9
+        tr.integrate(method='cumtrapz')
+        tr.stats.units="Strain"
+
+    return st_tmp
+
+def to_displacement(st):
+    """
+    Converts to displacement from velocity
+    """
+    st_tmp=st.copy()
+    for tr in st_tmp:
+        tr.filter(type='bandpass',freqmin=5,freqmax=250)
+        tr.integrate(method='cumtrapz')
+        tr.stats.units = 'Displacement'
+
+    return st_tmp
+
+def mtspec(tr,plot=True):
+    """
+    FFT using mtspec which plots the amplitude spectrum and return the maximum amplitude value. 
+    """
+    # MTSPEC parameters
+    nw    = 4.0
+    kspec = 6
+    
+    dt=1.0/tr.stats.sampling_rate
+    N=tr.stats.npts
+    wlen=tr.stats.endtime-tr.stats.starttime
+
+    Py   = MTSpec(tr.data,nw,kspec,dt)   
+    freq ,spec   = Py.rspec()
+
+    amp=np.sqrt(spec*wlen)
+    amp_max=np.max(amp)
+
+    if plot == True:
+        plt.figure(figsize=[6,4])
+        plt.loglog(freq,amp,'k')
+        plt.axhline(y=amp_max,c='k',ls='--')
+        plt.ylim(1e-13,1e-10)
+        plt.xlim(0,500)
+        plt.xlabel('Frequency (Hz)')
+        plt.ylabel('Amplitude')
+        plt.grid()
+        plt.show()
+
+    return amp_max
+        
+    
+
+
